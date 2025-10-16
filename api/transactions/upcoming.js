@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function verifyToken(req) {
   const authHeader = req.headers.authorization;
@@ -29,31 +30,27 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  let client;
-
   try {
     const decoded = verifyToken(req);
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const transactions = db.collection('transactions');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const today = new Date();
     const next30Days = new Date();
     next30Days.setDate(today.getDate() + 30);
 
-    const upcoming = await transactions.find({
-      userId: decoded.userId,
-      status: 'pending',
-      date: {
-        $gte: today.toISOString(),
-        $lte: next30Days.toISOString()
-      }
-    })
-    .sort({ date: 1 })
-    .limit(10)
-    .toArray();
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', decoded.userId)
+      .eq('status', 'pending')
+      .gte('date', today.toISOString().split('T')[0])
+      .lte('date', next30Days.toISOString().split('T')[0])
+      .order('date', { ascending: true })
+      .limit(10);
 
-    return res.status(200).json({ transactions: upcoming });
+    if (error) throw error;
+
+    return res.status(200).json({ transactions: data || [] });
 
   } catch (error) {
     console.error('Upcoming transactions error:', error);
@@ -61,9 +58,5 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Token inválido' });
     }
     return res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };

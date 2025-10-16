@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function verifyToken(req) {
   const authHeader = req.headers.authorization;
@@ -25,24 +26,26 @@ module.exports = async (req, res) => {
     return;
   }
 
-  let client;
-
   try {
     const decoded = verifyToken(req);
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const settings = db.collection('settings');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // GET - Buscar configurações
     if (req.method === 'GET') {
-      const userSettings = await settings.findOne({ userId: decoded.userId });
-      
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('user_id', decoded.userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+
       return res.status(200).json({ 
-        settings: userSettings || {
-          monthlySalary: 0,
-          salaryDay: 5,
-          advanceLimit: 40,
-          advanceFee: 5
+        settings: data || {
+          monthly_salary: 0,
+          salary_day: 5,
+          advance_limit: 40,
+          advance_fee: 5
         }
       });
     }
@@ -51,16 +54,33 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const newSettings = {
         ...req.body,
-        userId: decoded.userId,
-        updatedAt: new Date()
+        user_id: decoded.userId
       };
 
-      await settings.updateOne(
-        { userId: decoded.userId },
-        { $set: newSettings },
-        { upsert: true }
-      );
-      
+      // Tentar atualizar primeiro
+      const { data: existing } = await supabase
+        .from('settings')
+        .select('id')
+        .eq('user_id', decoded.userId)
+        .single();
+
+      if (existing) {
+        // Atualizar
+        const { error } = await supabase
+          .from('settings')
+          .update(newSettings)
+          .eq('user_id', decoded.userId);
+
+        if (error) throw error;
+      } else {
+        // Inserir
+        const { error } = await supabase
+          .from('settings')
+          .insert([newSettings]);
+
+        if (error) throw error;
+      }
+
       return res.status(200).json({ success: true });
     }
 
@@ -72,9 +92,5 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Token inválido' });
     }
     return res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };

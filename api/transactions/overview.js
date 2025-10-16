@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function verifyToken(req) {
   const authHeader = req.headers.authorization;
@@ -29,13 +30,9 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  let client;
-
   try {
     const decoded = verifyToken(req);
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const transactions = db.collection('transactions');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // Data atual
     const now = new Date();
@@ -43,40 +40,44 @@ module.exports = async (req, res) => {
     const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     // Buscar transações do mês
-    const monthTransactions = await transactions.find({
-      userId: decoded.userId,
-      date: {
-        $gte: firstDayOfMonth.toISOString(),
-        $lte: lastDayOfMonth.toISOString()
-      }
-    }).toArray();
+    const { data: monthTransactions, error: monthError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', decoded.userId)
+      .gte('date', firstDayOfMonth.toISOString().split('T')[0])
+      .lte('date', lastDayOfMonth.toISOString().split('T')[0]);
 
-    // Calcular totais
+    if (monthError) throw monthError;
+
+    // Calcular totais do mês
     let monthIncome = 0;
     let monthExpenses = 0;
 
-    monthTransactions.forEach(t => {
+    (monthTransactions || []).forEach(t => {
       if (t.status === 'paid') {
         if (t.type === 'income') {
-          monthIncome += t.amount;
+          monthIncome += parseFloat(t.amount);
         } else {
-          monthExpenses += t.amount;
+          monthExpenses += parseFloat(t.amount);
         }
       }
     });
 
     // Buscar todas as transações pagas para saldo total
-    const allPaidTransactions = await transactions.find({
-      userId: decoded.userId,
-      status: 'paid'
-    }).toArray();
+    const { data: allPaidTransactions, error: allError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', decoded.userId)
+      .eq('status', 'paid');
+
+    if (allError) throw allError;
 
     let totalBalance = 0;
-    allPaidTransactions.forEach(t => {
+    (allPaidTransactions || []).forEach(t => {
       if (t.type === 'income') {
-        totalBalance += t.amount;
+        totalBalance += parseFloat(t.amount);
       } else {
-        totalBalance -= t.amount;
+        totalBalance -= parseFloat(t.amount);
       }
     });
 
@@ -92,9 +93,5 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Token inválido' });
     }
     return res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };

@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient, ObjectId } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function verifyToken(req) {
   const authHeader = req.headers.authorization;
@@ -29,8 +30,6 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  let client;
-
   try {
     const decoded = verifyToken(req);
     const { id } = req.query;
@@ -39,18 +38,15 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'ID não fornecido' });
     }
 
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const transactions = db.collection('transactions');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const result = await transactions.deleteOne({
-      _id: new ObjectId(id),
-      userId: decoded.userId
-    });
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', decoded.userId);
 
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Transação não encontrada' });
-    }
+    if (error) throw error;
 
     return res.status(200).json({ success: true });
 
@@ -60,9 +56,5 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Token inválido' });
     }
     return res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };

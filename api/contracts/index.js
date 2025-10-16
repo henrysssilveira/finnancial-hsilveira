@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient, ObjectId } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function verifyToken(req) {
   const authHeader = req.headers.authorization;
@@ -25,37 +26,41 @@ module.exports = async (req, res) => {
     return;
   }
 
-  let client;
-
   try {
     const decoded = verifyToken(req);
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const contracts = db.collection('contracts');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // GET - Listar contratos
     if (req.method === 'GET') {
-      const result = await contracts
-        .find({ userId: decoded.userId })
-        .sort({ startDate: -1 })
-        .toArray();
+      const { data, error } = await supabase
+        .from('contracts')
+        .select('*')
+        .eq('user_id', decoded.userId)
+        .order('start_date', { ascending: false });
 
-      return res.status(200).json({ contracts: result });
+      if (error) throw error;
+
+      return res.status(200).json({ contracts: data || [] });
     }
 
     // POST - Criar contrato
     if (req.method === 'POST') {
       const contract = {
         ...req.body,
-        userId: decoded.userId,
-        createdAt: new Date()
+        user_id: decoded.userId
       };
 
-      const result = await contracts.insertOne(contract);
-      
+      const { data, error } = await supabase
+        .from('contracts')
+        .insert([contract])
+        .select()
+        .single();
+
+      if (error) throw error;
+
       return res.status(201).json({ 
         success: true, 
-        id: result.insertedId 
+        id: data.id 
       });
     }
 
@@ -67,9 +72,5 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Token inválido' });
     }
     return res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };

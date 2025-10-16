@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { MongoClient } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hsilveira_secret_key_2025';
-const MONGO_URI = process.env.MONGO_URI;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 module.exports = async (req, res) => {
   // CORS headers
@@ -26,17 +27,17 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
   }
 
-  let client;
-
   try {
-    client = await MongoClient.connect(MONGO_URI);
-    const db = client.db('data-finnancial-hsilveira');
-    const users = db.collection('users');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // Buscar usuário
-    const user = await users.findOne({ username });
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'Usuário não encontrado' });
     }
 
@@ -47,7 +48,7 @@ module.exports = async (req, res) => {
 
     // Gerar token JWT
     const token = jwt.sign(
-      { userId: user._id, username: user.username },
+      { userId: user.id, username: user.username },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -64,9 +65,5 @@ module.exports = async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Erro no servidor' });
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 };
