@@ -17,66 +17,69 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Validar variáveis de ambiente
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   if (!JWT_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
     console.error('Missing environment variables');
-    return res.status(500).json({ 
-      error: 'Erro na configuração do servidor',
-      details: {
-        JWT_SECRET: !!JWT_SECRET,
-        SUPABASE_URL: !!SUPABASE_URL,
-        SUPABASE_SERVICE_KEY: !!SUPABASE_KEY
-      }
-    });
+    return res.status(500).json({ error: 'Server configuration error' });
+  }
+
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios' });
   }
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const { username, password } = req.body;
+    // Login usando Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+    if (error) {
+      console.error('Auth error:', error.message);
+      return res.status(401).json({ error: 'Email ou senha incorretos' });
     }
 
-    // Buscar usuário
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single();
-
-    if (error || !user) {
-      console.error('User not found:', error);
-      return res.status(401).json({ error: 'Usuário não encontrado' });
+    if (!data.user) {
+      return res.status(401).json({ error: 'Erro ao fazer login' });
     }
 
-    // Verificar senha (em produção, use bcrypt!)
-    if (user.password !== password) {
-      return res.status(401).json({ error: 'Senha incorreta' });
-    }
-
-    // Gerar token JWT
+    // Gerar token JWT customizado (opcional, você pode usar o token do Supabase)
     const token = jwt.sign(
-      { userId: user.id, username: user.username },
+      { 
+        userId: data.user.id, 
+        email: data.user.email,
+        supabaseToken: data.session.access_token
+      },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    // Buscar dados do perfil do usuário se existir
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', data.user.id)
+      .single();
 
     res.status(200).json({
       success: true,
       token,
       user: {
-        username: user.username,
-        name: user.name
+        id: data.user.id,
+        email: data.user.email,
+        name: profile?.name || data.user.user_metadata?.name || 'Usuário'
       }
     });
 
   } catch (error) {
     console.error('Login error:', error.message);
-    res.status(500).json({ 
-      error: 'Erro no servidor',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Erro no servidor' });
   }
 };
