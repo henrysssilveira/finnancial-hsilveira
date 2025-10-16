@@ -6,7 +6,6 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 module.exports = async (req, res) => {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -21,11 +20,6 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!JWT_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('Missing environment variables');
-    return res.status(500).json({ error: 'Server configuration error' });
-  }
-
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -33,9 +27,13 @@ module.exports = async (req, res) => {
   }
 
   try {
+    if (!JWT_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
+      console.error('Missing env vars');
+      return res.status(500).json({ error: 'Erro na configuração do servidor' });
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // Login usando Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
@@ -46,27 +44,18 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Email ou senha incorretos' });
     }
 
-    if (!data.user) {
+    if (!data.user || !data.session) {
       return res.status(401).json({ error: 'Erro ao fazer login' });
     }
 
-    // Gerar token JWT customizado (opcional, você pode usar o token do Supabase)
     const token = jwt.sign(
       { 
         userId: data.user.id, 
-        email: data.user.email,
-        supabaseToken: data.session.access_token
+        email: data.user.email
       },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
-
-    // Buscar dados do perfil do usuário se existir
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', data.user.id)
-      .single();
 
     res.status(200).json({
       success: true,
@@ -74,7 +63,7 @@ module.exports = async (req, res) => {
       user: {
         id: data.user.id,
         email: data.user.email,
-        name: profile?.name || data.user.user_metadata?.name || 'Usuário'
+        name: data.user.user_metadata?.name || email.split('@')[0]
       }
     });
 
