@@ -107,7 +107,7 @@ No terminal, durante o deploy, ou pelo dashboard do Vercel, configure:
 ```env
 MONGO_URI=mongodb+srv://henriquesilveira:HZ0ufTMylBV7oJQY@data-finnancial-hsilvei.brqhp2y.mongodb.net/?retryWrites=true&w=majority&appName=data-finnancial-hsilveira
 
-JWT_SECRET=hsilveira_secret_key_2025_production_change_this
+JWT_SECRET=fd6669db79efae59c50cfce90d9382eb25ce79b3765fd4f1e8bb5369812f65b4
 ```
 
 ⚠️ **CRÍTICO:** Antes de ir para produção, gere um novo JWT_SECRET:
